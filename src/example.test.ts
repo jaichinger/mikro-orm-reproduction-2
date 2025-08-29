@@ -126,6 +126,10 @@ afterAll(async () => {
   await orm.close(true);
 });
 
+afterEach(() => {
+  orm.em.clear();
+});
+
 test("composite foreign key as array", async () => {
   const requests = await orm.em.find(
     UserRequest,
