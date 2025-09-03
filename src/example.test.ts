@@ -1,10 +1,12 @@
 import {
+  Collection,
   Entity,
   ManyToOne,
   MikroORM,
+  OneToMany,
+  OneToOne,
   PrimaryKey,
   Property,
-  ref,
   Ref,
 } from "@mikro-orm/sqlite";
 
@@ -33,17 +35,24 @@ class User {
   @Property()
   name!: string;
 
-  @ManyToOne({
-    entity: () => Workspace,
+  @OneToOne({
+    entity: () => Profile,
     ref: true,
-    fieldNames: ["org_id", "workspace_id"],
-    ownColumns: ["workspace_id"],
+    fieldNames: ["org_id", "profile_id"],
+    ownColumns: ["profile_id"],
   })
-  workspace!: Ref<Workspace>;
+  profile!: Ref<Profile>;
+
+  @OneToOne({
+    entity: () => UserRequest,
+    mappedBy: (ur) => ur.user,
+    ref: true,
+  })
+  request?: Ref<UserRequest>;
 }
 
 @Entity()
-class Workspace {
+class Profile {
   @ManyToOne({
     entity: () => Organisation,
     fieldName: "org_id",
@@ -57,6 +66,13 @@ class Workspace {
 
   @Property()
   name!: string;
+
+  @OneToOne({
+    entity: () => User,
+    mappedBy: (u) => u.profile,
+    ref: true,
+  })
+  user?: Ref<User>;
 }
 
 @Entity()
@@ -75,7 +91,7 @@ class UserRequest {
   @Property()
   name!: string;
 
-  @ManyToOne({
+  @OneToOne({
     entity: () => User,
     ref: true,
     fieldNames: ["org_id", "user_id"],
@@ -89,7 +105,7 @@ let orm: MikroORM;
 beforeAll(async () => {
   orm = await MikroORM.init({
     dbName: ":memory:",
-    entities: [Organisation, User, Workspace, UserRequest],
+    entities: [Organisation, User, Profile, UserRequest],
     debug: ["query", "query-params"],
     allowGlobalContext: true, // only for testing
   });
@@ -98,24 +114,24 @@ beforeAll(async () => {
 
   const org = orm.em.create(Organisation, { id: 1, name: "org1" });
 
-  const ws = orm.em.create(Workspace, {
-    org: org,
-    id: 1,
-    name: "ws1",
+  const ws = orm.em.create(Profile, {
+    org,
+    id: 11,
+    name: "profile1",
   });
 
   const user = orm.em.create(User, {
-    org: org,
-    id: 1,
+    org,
+    id: 12,
     name: "user1",
-    workspace: ws,
+    profile: ws,
   });
 
   orm.em.create(UserRequest, {
-    org: org,
-    id: 1,
+    org,
+    id: 13,
     name: "userRequest1",
-    user: user,
+    user,
   });
 
   await orm.em.flush();
@@ -130,53 +146,26 @@ afterEach(() => {
   orm.em.clear();
 });
 
-test("composite foreign key as array", async () => {
-  const requests = await orm.em.find(
-    UserRequest,
-    {
-      user: {
-        workspace: [1, 1],
-      },
+/// This does not work
+test("partial composite foreign key from non-owning side as object", async () => {
+  const user = await orm.em.findOneOrFail(User, {
+    request: {
+      id: 13,
     },
-    {
-      populate: ["user"],
-    }
-  );
+  });
 
-  expect(requests).toHaveLength(1);
-  expect(requests[0].name).toBe("userRequest1");
+  expect(user.name).toBe("user1");
 });
 
-test("composite foreign key as ref", async () => {
-  const requests = await orm.em.find(
-    UserRequest,
-    {
-      user: {
-        workspace: ref(Workspace, [1, 1]),
+// This works
+test("partial composite foreign key from non-owning side as object (nested)", async () => {
+  const profile = await orm.em.findOneOrFail(Profile, {
+    user: {
+      request: {
+        id: 13,
       },
     },
-    {
-      populate: ["user"],
-    }
-  );
+  });
 
-  expect(requests).toHaveLength(1);
-  expect(requests[0].name).toBe("userRequest1");
-});
-
-test("composite foreign key as object", async () => {
-  const requests = await orm.em.find(
-    UserRequest,
-    {
-      user: {
-        workspace: { org: 1, id: 1 },
-      },
-    },
-    {
-      populate: ["user"],
-    }
-  );
-
-  expect(requests).toHaveLength(1);
-  expect(requests[0].name).toBe("userRequest1");
+  expect(profile.name).toBe("profile1");
 });
