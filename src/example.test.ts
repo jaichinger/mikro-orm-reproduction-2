@@ -44,11 +44,11 @@ class User {
   profile!: Ref<Profile>;
 
   @OneToOne({
-    entity: () => UserRequest,
+    entity: () => Request,
     mappedBy: (ur) => ur.user,
     ref: true,
   })
-  request?: Ref<UserRequest>;
+  request?: Ref<Request>;
 }
 
 @Entity()
@@ -76,7 +76,7 @@ class Profile {
 }
 
 @Entity()
-class UserRequest {
+class Request {
   @ManyToOne({
     entity: () => Organisation,
     fieldName: "org_id",
@@ -105,7 +105,7 @@ let orm: MikroORM;
 beforeAll(async () => {
   orm = await MikroORM.init({
     dbName: ":memory:",
-    entities: [Organisation, User, Profile, UserRequest],
+    entities: [Organisation, User, Profile, Request],
     debug: ["query", "query-params"],
     allowGlobalContext: true, // only for testing
   });
@@ -127,10 +127,10 @@ beforeAll(async () => {
     profile: ws,
   });
 
-  orm.em.create(UserRequest, {
+  orm.em.create(Request, {
     org,
     id: 13,
-    name: "userRequest1",
+    name: "request1",
     user,
   });
 
