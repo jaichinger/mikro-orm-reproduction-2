@@ -1,6 +1,7 @@
 import {
   Collection,
   Entity,
+  Filter,
   ManyToOne,
   MikroORM,
   OneToMany,
@@ -43,15 +44,21 @@ class User {
   })
   profile!: Ref<Profile>;
 
-  @OneToOne({
-    entity: () => Request,
-    mappedBy: (ur) => ur.user,
+  @ManyToOne({
+    entity: () => Workspace,
+    fieldNames: ["org_id", "workspace_id"],
+    ownColumns: ["workspace_id"],
     ref: true,
   })
-  request?: Ref<Request>;
+  workspace!: Ref<Workspace>;
 }
 
 @Entity()
+@Filter<Profile>({
+  name: "softDelete",
+  cond: { deletedAt: { $eq: null } },
+  default: true,
+})
 class Profile {
   @ManyToOne({
     entity: () => Organisation,
@@ -73,10 +80,18 @@ class Profile {
     ref: true,
   })
   user?: Ref<User>;
+
+  @Property({ nullable: true })
+  deletedAt?: Date;
 }
 
 @Entity()
-class Request {
+@Filter<Workspace>({
+  name: "softDelete",
+  cond: { deletedAt: { $eq: null } },
+  default: true,
+})
+class Workspace {
   @ManyToOne({
     entity: () => Organisation,
     fieldName: "org_id",
@@ -91,13 +106,15 @@ class Request {
   @Property()
   name!: string;
 
-  @OneToOne({
+  @OneToMany({
     entity: () => User,
+    mappedBy: (u) => u.workspace,
     ref: true,
-    fieldNames: ["org_id", "user_id"],
-    ownColumns: ["user_id"],
   })
-  user!: Ref<User>;
+  users = new Collection<User>(this);
+
+  @Property({ nullable: true })
+  deletedAt?: Date;
 }
 
 let orm: MikroORM;
@@ -114,24 +131,24 @@ beforeAll(async () => {
 
   const org = orm.em.create(Organisation, { id: 1, name: "org1" });
 
-  const ws = orm.em.create(Profile, {
+  const workspace = orm.em.create(Workspace, {
+    org,
+    id: 10,
+    name: "workspace1",
+  });
+
+  const profile = orm.em.create(Profile, {
     org,
     id: 11,
     name: "profile1",
   });
 
-  const user = orm.em.create(User, {
+  orm.em.create(User, {
     org,
     id: 12,
     name: "user1",
-    profile: ws,
-  });
-
-  orm.em.create(Request, {
-    org,
-    id: 13,
-    name: "request1",
-    user,
+    profile,
+    workspace,
   });
 
   await orm.em.flush();
@@ -146,26 +163,33 @@ afterEach(() => {
   orm.em.clear();
 });
 
-/// This does not work
-test("partial composite foreign key from non-owning side as object", async () => {
-  const user = await orm.em.findOneOrFail(User, {
-    request: {
-      id: 13,
-    },
+test("populate 1:m collection via load()", async () => {
+  const workspace = await orm.em.findOneOrFail(Workspace, {
+    id: 10,
   });
 
-  expect(user.name).toBe("user1");
+  const users = await workspace.users.load();
+
+  expect(users).toHaveLength(1);
 });
 
-// This works
-test("partial composite foreign key from non-owning side as object (nested)", async () => {
-  const profile = await orm.em.findOneOrFail(Profile, {
-    user: {
-      request: {
-        id: 13,
-      },
-    },
+test("populate 1:m collection via em.polulate()", async () => {
+  const workspace = await orm.em.findOneOrFail(Workspace, {
+    id: 10,
   });
 
-  expect(profile.name).toBe("profile1");
+  await orm.em.populate(workspace, ["users"]);
+
+  expect(workspace.users.isInitialized(true)).toBe(true);
+});
+
+test("populate 1:1 via load()", async () => {
+  const profile = await orm.em.findOneOrFail(Profile, {
+    id: 11,
+  });
+
+  const user = await profile.user?.load();
+
+  expect(user).toBeDefined();
+  expect(user?.name).toBe("user1");
 });
